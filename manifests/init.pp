@@ -103,6 +103,10 @@
 #   String.  Host running rabbitmq for sensu
 #   Default: 'localhost'
 #
+# [*rabbitmq_hosts*]
+#   Array.  Hosts running rabbitmq for sensu
+#   Default: undef
+#
 # [*rabbitmq_user*]
 #   String.  Username to connect to rabbitmq with for sensu
 #   Default: 'sensu'
@@ -299,6 +303,7 @@ class sensu (
   $manage_mutators_dir            = true,
   $rabbitmq_port                  = 5672,
   $rabbitmq_host                  = 'localhost',
+  $rabbitmq_hosts                 = undef,
   $rabbitmq_user                  = 'sensu',
   $rabbitmq_password              = undef,
   $rabbitmq_vhost                 = 'sensu',
@@ -375,6 +380,10 @@ class sensu (
   if $purge_config { fail('purge_config is deprecated, set the purge parameter to a hash containing `config => true` instead') }
   if $purge_plugins_dir { fail('purge_plugins_dir is deprecated, set the purge parameter to a hash containing `plugins => true` instead') }
   if !is_integer($redis_db) { fail('redis_db must be an integer') }
+
+  if $sensu::rabbitmq_hosts {
+    if !is_array($sensu::rabbitmq_hosts) { fail('rabbitmq_hosts must be an array') }
+  }
 
   # sensu-enterprise supercedes sensu-server and sensu-api
   if ( $enterprise and $api ) or ( $enterprise and $server ) {
