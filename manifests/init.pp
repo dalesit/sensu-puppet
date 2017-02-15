@@ -10,16 +10,19 @@
 #   Valid values: absent, installed, latest, present, [\d\.\-]+
 #
 # [*sensu_plugin_name*]
-#   String.  Name of the sensu-plugin package
+#   String.  Name of the sensu-plugin package. Refers to the sensu-plugin rubygem
+#   Not the community sensu-plugins community scripts.
 #   Default: sensu-plugin
 #
 # [*sensu_plugin_provider*]
-#   String.  Provider used to install the sensu-plugin package
+#   String.  Provider used to install the sensu-plugin package. Refers to the
+#   sensu-plugin rubygem, not the sensu-plugins community scripts
 #   Default: undef
 #   Valid values: sensu_gem, apt, aptitude, yum
 #
 # [*sensu_plugin_version*]
-#   String.  Version of the sensu-plugin gem to install
+#   String.  Version of the sensu-plugin gem to install. Refers to the sensu-plugin
+#   rubygem, not the sensu-plugins community scripts
 #   Default: installed
 #   Valid values: absent, installed, latest, present, [\d\.\-]+
 #
@@ -118,7 +121,7 @@
 #
 # [*rabbitmq_vhost*]
 #   String.  Rabbitmq vhost to be used by sensu
-#   Default: 'sensu'
+#   Default: '/sensu'
 #
 # [*rabbitmq_ssl*]
 #   Boolean.  Use SSL transport to connect to RabbitMQ.  If rabbitmq_ssl_private_key and/or
@@ -151,6 +154,10 @@
 #   Integer.  The integer value for the RabbitMQ prefetch attribute
 #   Default: 1
 #
+# [*rabbitmq_cluster*]
+#   Array of hashes. Rabbitmq Cluster configuration and connection information for one or more Cluster
+#   Default: Not configured
+#
 # [*redis_host*]
 #   String.  Hostname of redis to be used by sensu
 #   Default: 127.0.0.1
@@ -172,6 +179,14 @@
 # [*redis_db*]
 #   Integer.  The Redis instance DB to use/select
 #   Default: 0
+#
+# [*redis_sentinels*]
+#   Array. Redis Sentinel configuration and connection information for one or more Sentinels
+#   Default: Not configured
+#
+# [*redis_master*]
+#   String. Redis master name in the sentinel configuration
+#   Default: undef. In the end whatever sensu defaults to, which is "mymaster" currently.
 #
 # [*redis_auto_reconnect*]
 #   Boolean.  Reconnect to Redis in the event of a connection failure
@@ -279,11 +294,19 @@
 #
 # [*redact*]
 #   Array of strings. Use to redact passwords from checks on the client side
-#   Default: []
-
+#   Default: undef
+#
+# [*deregister_on_stop*]
+#   Boolean. Whether the sensu client should deregister from the API on service stop
+#   Default: false
+#
+# [*deregister_handler*]
+#   String. The handler to use when deregistering a client on stop.
+#   Default: undef
+#
 # [*handlers*]
 #   Hash of handlers for use with create_sources(sensu::handler).
-#   Example value: { 'email': { 'type' => 'pipe', 'command' => 'mail' } }
+#   Example value: { 'email' => { 'type' => 'pipe', 'command' => 'mail' } }
 #   Default: {}
 #
 # [*handler_defaults*]
@@ -293,7 +316,7 @@
 #
 # [*checks*]
 #   Hash of checks for use with create_sources(sensu::check).
-#   Example value: { 'check-cpu': { 'command' => 'check-cpu.rb' } }
+#   Example value: { 'check-cpu' => { 'command' => 'check-cpu.rb' } }
 #   Default: {}
 #
 # [*check_defaults*]
@@ -303,7 +326,7 @@
 #
 # [*filters*]
 #   Hash of filters for use with create_sources(sensu::filter).
-#   Example value: { 'occurrence': { 'attributes' => { 'occurrences' => '1' } } }
+#   Example value: { 'occurrence' => { 'attributes' => { 'occurrences' => '1' } } }
 #   Default: {}
 #
 # [*filter_defaults*]
@@ -338,22 +361,25 @@ class sensu (
   $manage_plugins_dir             = true,
   $manage_handlers_dir            = true,
   $manage_mutators_dir            = true,
-  $rabbitmq_port                  = 5672,
-  $rabbitmq_host                  = '127.0.0.1',
-  $rabbitmq_user                  = 'sensu',
+  $rabbitmq_port                  = undef,
+  $rabbitmq_host                  = undef,
+  $rabbitmq_user                  = undef,
   $rabbitmq_password              = undef,
-  $rabbitmq_vhost                 = 'sensu',
-  $rabbitmq_ssl                   = false,
+  $rabbitmq_vhost                 = undef,
+  $rabbitmq_ssl                   = undef,
   $rabbitmq_ssl_private_key       = undef,
   $rabbitmq_ssl_cert_chain        = undef,
   $rabbitmq_reconnect_on_error    = false,
-  $rabbitmq_prefetch              = 1,
+  $rabbitmq_prefetch              = undef,
+  $rabbitmq_cluster               = undef,
   $redis_host                     = '127.0.0.1',
   $redis_port                     = 6379,
   $redis_password                 = undef,
   $redis_reconnect_on_error       = false,
   $redis_db                       = 0,
   $redis_auto_reconnect           = true,
+  $redis_sentinels                = undef,
+  $redis_master                   = undef,
   $api_bind                       = '0.0.0.0',
   $api_host                       = '127.0.0.1',
   $api_port                       = 4567,
@@ -392,7 +418,9 @@ class sensu (
   $enterprise_dashboard_gitlab    = undef,
   $enterprise_dashboard_ldap      = undef,
   $path                           = undef,
-  $redact                         = [],
+  $redact                         = undef,
+  $deregister_on_stop             = false,
+  $deregister_handler             = undef,
 
   ### START Hiera Lookups ###
   $extensions                  = {},
@@ -407,14 +435,13 @@ class sensu (
 
 ){
 
-  validate_bool($client, $server, $api, $manage_repo, $install_repo, $enterprise, $enterprise_dashboard, $purge_config, $safe_mode, $manage_services, $rabbitmq_reconnect_on_error, $redis_reconnect_on_error, $hasrestart, $redis_auto_reconnect, $manage_mutators_dir)
+  validate_bool($client, $server, $api, $manage_repo, $install_repo, $enterprise, $enterprise_dashboard, $purge_config, $safe_mode, $manage_services, $rabbitmq_reconnect_on_error, $redis_reconnect_on_error, $hasrestart, $redis_auto_reconnect, $manage_mutators_dir, $deregister_on_stop)
 
   validate_re($repo, ['^main$', '^unstable$'], "Repo must be 'main' or 'unstable'.  Found: ${repo}")
   validate_re($version, ['^absent$', '^installed$', '^latest$', '^present$', '^[\d\.\-]+$'], "Invalid package version: ${version}")
   validate_re($enterprise_version, ['^absent$', '^installed$', '^latest$', '^present$', '^[\d\.\-]+$'], "Invalid package version: ${version}")
   validate_re($sensu_plugin_version, ['^absent$', '^installed$', '^latest$', '^present$', '^\d[\d\.\-\w]+$'], "Invalid sensu-plugin package version: ${sensu_plugin_version}")
   validate_re($log_level, ['^debug$', '^info$', '^warn$', '^error$', '^fatal$'] )
-  if !is_integer($rabbitmq_port) { fail('rabbitmq_port must be an integer') }
   if !is_integer($redis_port) { fail('redis_port must be an integer') }
   if !is_integer($api_port) { fail('api_port must be an integer') }
   if !is_integer($init_stop_max_wait) { fail('init_stop_max_wait must be an integer') }
@@ -505,6 +532,8 @@ class sensu (
       $conf_dir = "${etc_dir}/conf.d"
       $user = 'sensu'
       $group = 'sensu'
+      $home_dir = '/opt/sensu'
+      $shell = '/bin/false'
       $dir_mode = '0555'
       $file_mode = '0440'
     }
@@ -512,11 +541,15 @@ class sensu (
     'windows': {
       $etc_dir = 'C:/opt/sensu'
       $conf_dir = "${etc_dir}/conf.d"
-      $user = undef
-      $group = undef
+      $user = 'NT Authority\SYSTEM'
+      $group = 'Administrators'
+      $home_dir = $etc_dir
+      $shell = undef
       $dir_mode = undef
       $file_mode = undef
     }
+
+    default: {}
   }
 
   # Include everything and let each module determine its state.  This allows
